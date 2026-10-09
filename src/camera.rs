@@ -1,0 +1,187 @@
+use bevy::prelude::*;
+use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::window::{PrimaryWindow, CursorGrabMode, CursorOptions};
+use crate::voxel::VoxelWorld;
+
+pub struct CameraPlugin;
+
+impl Plugin for CameraPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, setup_camera)
+            .add_systems(Update, camera_movement);
+    }
+}
+
+#[derive(Component)]
+pub struct FlyCamera {
+    pub speed: f32,
+    pub sensitivity: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub velocity: Vec3,
+    pub on_ground: bool,
+}
+
+fn setup_camera(mut commands: Commands) {
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(16.0, 40.0, 16.0).looking_at(Vec3::new(16.0, 39.0, 15.0), Vec3::Y),
+        FlyCamera {
+            speed: 5.0,
+            sensitivity: 0.002,
+            pitch: 0.0,
+            yaw: 0.0,
+            velocity: Vec3::ZERO,
+            on_ground: false,
+        },
+    ));
+}
+
+fn camera_movement(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse_motion: Res<AccumulatedMouseMotion>,
+    mut q_windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    mouse_btn: Res<ButtonInput<MouseButton>>,
+    mut q_camera: Query<(&mut Transform, &mut FlyCamera)>,
+    mut voxel_world: Option<ResMut<VoxelWorld>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let Ok(mut cursor_options) = q_windows.single_mut() else { return };
+    
+    let mut just_locked = false;
+    // Toggle mouse grab with left click / escape
+    if mouse_btn.just_pressed(MouseButton::Left) {
+        if cursor_options.grab_mode != CursorGrabMode::Locked {
+            cursor_options.grab_mode = CursorGrabMode::Locked;
+            cursor_options.visible = false;
+            just_locked = true;
+        }
+    }
+    if keys.just_pressed(KeyCode::Escape) {
+        cursor_options.grab_mode = CursorGrabMode::None;
+        cursor_options.visible = true;
+    }
+
+    if cursor_options.grab_mode == CursorGrabMode::None {
+        return;
+    }
+
+    let Ok((mut transform, mut fly_cam)) = q_camera.single_mut() else { return };
+
+    let delta = mouse_motion.delta;
+
+    fly_cam.yaw -= delta.x * fly_cam.sensitivity;
+    fly_cam.pitch -= delta.y * fly_cam.sensitivity;
+    
+    fly_cam.pitch = fly_cam.pitch.clamp(-1.54, 1.54);
+
+    transform.rotation = Quat::from_axis_angle(Vec3::Y, fly_cam.yaw) * Quat::from_axis_angle(Vec3::X, fly_cam.pitch);
+
+    let mut direction = Vec3::ZERO;
+    let mut forward = *transform.forward();
+    forward.y = 0.0;
+    forward = forward.normalize_or_zero();
+    let mut right = *transform.right();
+    right.y = 0.0;
+    right = right.normalize_or_zero();
+
+    if keys.pressed(KeyCode::KeyW) { direction += forward; }
+    if keys.pressed(KeyCode::KeyS) { direction -= forward; }
+    if keys.pressed(KeyCode::KeyD) { direction += right; }
+    if keys.pressed(KeyCode::KeyA) { direction -= right; }
+
+    if direction.length_squared() > 0.0 {
+        direction = direction.normalize();
+    }
+
+    let dt = time.delta_secs();
+    
+    // Physics & Movement
+    let speed = fly_cam.speed;
+    let target_velocity_x = direction.x * speed;
+    let target_velocity_z = direction.z * speed;
+
+    // Apply gravity
+    fly_cam.velocity.y -= 25.0 * dt;
+
+    if fly_cam.on_ground && keys.just_pressed(KeyCode::Space) {
+        fly_cam.velocity.y = 8.0; // Jump
+    }
+
+    fly_cam.velocity.x = target_velocity_x;
+    fly_cam.velocity.z = target_velocity_z;
+
+    let Some(world) = &mut voxel_world else { return };
+
+    let mut new_pos = transform.translation;
+
+    // Helper for collision
+    // Výška přesně 2 bloky, oči (kamera) ve výšce 1.6 bloku
+    let player_min = Vec3::new(-0.3, -1.6, -0.3);
+    let player_max = Vec3::new(0.3, 0.4, 0.3);
+    let is_colliding = |pos: Vec3| -> bool {
+        world.is_solid(pos + player_min, pos + player_max)
+    };
+
+    // Move Y
+    new_pos.y += fly_cam.velocity.y * dt;
+    if is_colliding(new_pos) {
+        if fly_cam.velocity.y < 0.0 {
+            fly_cam.on_ground = true;
+        } else {
+            fly_cam.on_ground = false; // Hit head
+        }
+        new_pos.y -= fly_cam.velocity.y * dt;
+        fly_cam.velocity.y = 0.0;
+    } else {
+        fly_cam.on_ground = false;
+    }
+
+    // Move X
+    new_pos.x += fly_cam.velocity.x * dt;
+    if is_colliding(new_pos) {
+        new_pos.x -= fly_cam.velocity.x * dt;
+    }
+
+    // Move Z
+    new_pos.z += fly_cam.velocity.z * dt;
+    if is_colliding(new_pos) {
+        new_pos.z -= fly_cam.velocity.z * dt;
+    }
+
+    // Ensure we don't fall forever if we clip through
+    if new_pos.y < -100.0 {
+        new_pos = Vec3::new(16.0, 40.0, 16.0);
+        fly_cam.velocity = Vec3::ZERO;
+    }
+
+    transform.translation = new_pos;
+
+    // Interaction
+    if !just_locked {
+        let left_click = mouse_btn.just_pressed(MouseButton::Left);
+        let right_click = mouse_btn.just_pressed(MouseButton::Right);
+        
+        if left_click || right_click {
+            if let Some((hit_pos, normal)) = world.raycast(transform.translation, *transform.forward(), 5.0) {
+                let mut modified = false;
+                if left_click {
+                    world.set_block(hit_pos.x as i32, hit_pos.y as i32, hit_pos.z as i32, crate::voxel::BlockType::Air);
+                    modified = true;
+                } else if right_click {
+                    let place_pos = hit_pos + normal;
+                    world.set_block(place_pos.x as i32, place_pos.y as i32, place_pos.z as i32, crate::voxel::BlockType::Dirt);
+                    modified = true;
+                }
+                
+                if modified {
+                    let new_mesh = world.chunk.generate_mesh();
+                    if let Some(mut mesh) = meshes.get_mut(&world.mesh_handle) {
+                        *mesh = new_mesh;
+                    }
+                }
+            }
+        }
+    }
+}

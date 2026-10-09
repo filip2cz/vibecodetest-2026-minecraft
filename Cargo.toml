@@ -1,0 +1,8 @@
+[package]
+name = "vibecodetest-2026-minecraft"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.19.1"
+noise = "0.9.0"
