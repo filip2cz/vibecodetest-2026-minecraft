@@ -21,9 +21,13 @@ pub struct FlyCamera {
     pub velocity: Vec3,
     pub on_ground: bool,
     pub selected_block: crate::voxel::BlockType,
+    pub interaction_timer: Timer,
 }
 
 fn setup_camera(mut commands: Commands) {
+    let mut timer = Timer::from_seconds(0.2, TimerMode::Once);
+    timer.set_elapsed(std::time::Duration::from_secs_f32(0.2)); // Ready immediately
+
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(16.0, 40.0, 16.0).looking_at(Vec3::new(16.0, 39.0, 15.0), Vec3::Y),
@@ -35,6 +39,7 @@ fn setup_camera(mut commands: Commands) {
             velocity: Vec3::ZERO,
             on_ground: false,
             selected_block: crate::voxel::BlockType::Dirt,
+            interaction_timer: timer,
         },
     ));
 }
@@ -192,22 +197,29 @@ fn camera_movement(
 
     transform.translation = new_pos;
 
+    fly_cam.interaction_timer.tick(time.delta());
+
     // Interaction
     if !just_locked {
+        let left_pressed = mouse_btn.pressed(MouseButton::Left);
+        let right_pressed = mouse_btn.pressed(MouseButton::Right);
+
+        if !left_pressed && !right_pressed {
+            // Reset timer so next click is instant
+            fly_cam.interaction_timer.set_elapsed(std::time::Duration::from_secs_f32(0.2));
+        }
+
         if let Some((hit_pos, normal)) = world.raycast(transform.translation, *transform.forward(), 5.0) {
             // Nakreslení zvýraznění (outline) bloku
             let center = hit_pos + Vec3::new(0.5, 0.5, 0.5);
             gizmos.cube(Transform::from_translation(center).with_scale(Vec3::splat(1.02)), Color::BLACK);
 
-            let left_click = mouse_btn.just_pressed(MouseButton::Left);
-            let right_click = mouse_btn.just_pressed(MouseButton::Right);
-            
-            if left_click || right_click {
+            if (left_pressed || right_pressed) && fly_cam.interaction_timer.is_finished() {
                 let mut modified = false;
-                if left_click {
+                if left_pressed {
                     world.set_block(hit_pos.x as i32, hit_pos.y as i32, hit_pos.z as i32, crate::voxel::BlockType::Air);
                     modified = true;
-                } else if right_click {
+                } else if right_pressed {
                     let place_pos = Vec3::new(
                         (hit_pos.x + normal.x).floor(),
                         (hit_pos.y + normal.y).floor(),
@@ -230,6 +242,8 @@ fn camera_movement(
                 }
                 
                 if modified {
+                    fly_cam.interaction_timer.reset(); // Start cooldown
+
                     let new_opaque = world.chunk.generate_mesh(true);
                     let new_transparent = world.chunk.generate_mesh(false);
                     
