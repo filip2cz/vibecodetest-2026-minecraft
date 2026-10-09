@@ -127,9 +127,9 @@ fn camera_movement(
     let mut new_pos = transform.translation;
 
     // Helper for collision
-    // Výška přesně 2 bloky, oči (kamera) ve výšce 1.6 bloku
+    // Výška postavy 1.8 bloku (jako v Minecraftu), aby se bezpečně vešla do 2 bloků vysoké mezery
     let player_min = Vec3::new(-0.3, -1.6, -0.3);
-    let player_max = Vec3::new(0.3, 0.4, 0.3);
+    let player_max = Vec3::new(0.3, 0.2, 0.3);
     let is_colliding = |pos: Vec3| -> bool {
         world.is_solid(pos + player_min, pos + player_max)
     };
