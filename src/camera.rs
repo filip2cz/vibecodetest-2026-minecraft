@@ -50,6 +50,7 @@ fn camera_movement(
     mut q_camera: Query<(&mut Transform, &mut FlyCamera)>,
     mut voxel_world: Option<ResMut<VoxelWorld>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut gizmos: Gizmos,
 ) {
     let Ok(mut cursor_options) = q_windows.single_mut() else { return };
     
@@ -191,11 +192,15 @@ fn camera_movement(
 
     // Interaction
     if !just_locked {
-        let left_click = mouse_btn.just_pressed(MouseButton::Left);
-        let right_click = mouse_btn.just_pressed(MouseButton::Right);
-        
-        if left_click || right_click {
-            if let Some((hit_pos, normal)) = world.raycast(transform.translation, *transform.forward(), 5.0) {
+        if let Some((hit_pos, normal)) = world.raycast(transform.translation, *transform.forward(), 5.0) {
+            // Nakreslení zvýraznění (outline) bloku
+            let center = hit_pos + Vec3::new(0.5, 0.5, 0.5);
+            gizmos.cube(Transform::from_translation(center).with_scale(Vec3::splat(1.02)), Color::BLACK);
+
+            let left_click = mouse_btn.just_pressed(MouseButton::Left);
+            let right_click = mouse_btn.just_pressed(MouseButton::Right);
+            
+            if left_click || right_click {
                 let mut modified = false;
                 if left_click {
                     world.set_block(hit_pos.x as i32, hit_pos.y as i32, hit_pos.z as i32, crate::voxel::BlockType::Air);
