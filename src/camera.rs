@@ -20,6 +20,7 @@ pub struct FlyCamera {
     pub yaw: f32,
     pub velocity: Vec3,
     pub on_ground: bool,
+    pub selected_block: crate::voxel::BlockType,
 }
 
 fn setup_camera(mut commands: Commands) {
@@ -33,11 +34,13 @@ fn setup_camera(mut commands: Commands) {
             yaw: 0.0,
             velocity: Vec3::ZERO,
             on_ground: false,
+            selected_block: crate::voxel::BlockType::Dirt,
         },
     ));
 }
 
 fn camera_movement(
+    mut commands: Commands,
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
@@ -68,6 +71,13 @@ fn camera_movement(
     }
 
     let Ok((mut transform, mut fly_cam)) = q_camera.single_mut() else { return };
+
+    // Block selection
+    if keys.just_pressed(KeyCode::Digit1) { fly_cam.selected_block = crate::voxel::BlockType::Grass; }
+    if keys.just_pressed(KeyCode::Digit2) { fly_cam.selected_block = crate::voxel::BlockType::Dirt; }
+    if keys.just_pressed(KeyCode::Digit3) { fly_cam.selected_block = crate::voxel::BlockType::Stone; }
+    if keys.just_pressed(KeyCode::Digit4) { fly_cam.selected_block = crate::voxel::BlockType::Wood; }
+    if keys.just_pressed(KeyCode::Digit5) { fly_cam.selected_block = crate::voxel::BlockType::Glass; }
 
     let delta = mouse_motion.delta;
 
@@ -170,16 +180,36 @@ fn camera_movement(
                     world.set_block(hit_pos.x as i32, hit_pos.y as i32, hit_pos.z as i32, crate::voxel::BlockType::Air);
                     modified = true;
                 } else if right_click {
-                    let place_pos = hit_pos + normal;
-                    world.set_block(place_pos.x as i32, place_pos.y as i32, place_pos.z as i32, crate::voxel::BlockType::Dirt);
-                    modified = true;
+                    let place_pos = Vec3::new(
+                        (hit_pos.x + normal.x).floor(),
+                        (hit_pos.y + normal.y).floor(),
+                        (hit_pos.z + normal.z).floor(),
+                    );
+                    
+                    let player_box_min = new_pos + player_min;
+                    let player_box_max = new_pos + player_max;
+                    let block_min = place_pos;
+                    let block_max = place_pos + Vec3::ONE;
+                    
+                    let intersect_x = player_box_min.x < block_max.x && player_box_max.x > block_min.x;
+                    let intersect_y = player_box_min.y < block_max.y && player_box_max.y > block_min.y;
+                    let intersect_z = player_box_min.z < block_max.z && player_box_max.z > block_min.z;
+                    
+                    if !(intersect_x && intersect_y && intersect_z) {
+                        world.set_block(place_pos.x as i32, place_pos.y as i32, place_pos.z as i32, fly_cam.selected_block);
+                        modified = true;
+                    }
                 }
                 
                 if modified {
-                    let new_mesh = world.chunk.generate_mesh();
-                    if let Some(mut mesh) = meshes.get_mut(&world.mesh_handle) {
-                        *mesh = new_mesh;
-                    }
+                    let new_opaque = world.chunk.generate_mesh(true);
+                    let new_transparent = world.chunk.generate_mesh(false);
+                    
+                    let h_opaque = meshes.add(new_opaque);
+                    let h_transparent = meshes.add(new_transparent);
+                    
+                    commands.entity(world.opaque_entity).insert(Mesh3d(h_opaque));
+                    commands.entity(world.transparent_entity).insert(Mesh3d(h_transparent));
                 }
             }
         }

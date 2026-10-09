@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 mod camera;
 mod voxel;
+mod ui;
 
 fn main() {
     App::new()
@@ -14,6 +15,7 @@ fn main() {
         }))
         .add_plugins(camera::CameraPlugin)
         .add_plugins(voxel::VoxelPlugin)
+        .add_plugins(ui::UiPlugin)
         .add_systems(Startup, setup_light)
         .run();
 }
