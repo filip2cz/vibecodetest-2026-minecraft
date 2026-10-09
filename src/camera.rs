@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::mouse::{AccumulatedMouseMotion, MouseWheel};
 use bevy::window::{PrimaryWindow, CursorGrabMode, CursorOptions};
 use crate::voxel::VoxelWorld;
 
@@ -44,6 +44,7 @@ fn camera_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
+    mut mouse_wheel: MessageReader<MouseWheel>,
     mut q_windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
     mouse_btn: Res<ButtonInput<MouseButton>>,
     mut q_camera: Query<(&mut Transform, &mut FlyCamera)>,
@@ -72,12 +73,32 @@ fn camera_movement(
 
     let Ok((mut transform, mut fly_cam)) = q_camera.single_mut() else { return };
 
-    // Block selection
-    if keys.just_pressed(KeyCode::Digit1) { fly_cam.selected_block = crate::voxel::BlockType::Grass; }
-    if keys.just_pressed(KeyCode::Digit2) { fly_cam.selected_block = crate::voxel::BlockType::Dirt; }
-    if keys.just_pressed(KeyCode::Digit3) { fly_cam.selected_block = crate::voxel::BlockType::Stone; }
-    if keys.just_pressed(KeyCode::Digit4) { fly_cam.selected_block = crate::voxel::BlockType::Wood; }
-    if keys.just_pressed(KeyCode::Digit5) { fly_cam.selected_block = crate::voxel::BlockType::Glass; }
+    let blocks = [
+        crate::voxel::BlockType::Grass,
+        crate::voxel::BlockType::Dirt,
+        crate::voxel::BlockType::Stone,
+        crate::voxel::BlockType::Wood,
+        crate::voxel::BlockType::Glass,
+    ];
+    let mut current_idx = blocks.iter().position(|&b| b == fly_cam.selected_block).unwrap_or(0);
+
+    // Block selection (keyboard)
+    if keys.just_pressed(KeyCode::Digit1) { current_idx = 0; }
+    if keys.just_pressed(KeyCode::Digit2) { current_idx = 1; }
+    if keys.just_pressed(KeyCode::Digit3) { current_idx = 2; }
+    if keys.just_pressed(KeyCode::Digit4) { current_idx = 3; }
+    if keys.just_pressed(KeyCode::Digit5) { current_idx = 4; }
+
+    // Block selection (scroll wheel)
+    for ev in mouse_wheel.read() {
+        if ev.y > 0.0 {
+            current_idx = (current_idx + blocks.len() - 1) % blocks.len();
+        } else if ev.y < 0.0 {
+            current_idx = (current_idx + 1) % blocks.len();
+        }
+    }
+    
+    fly_cam.selected_block = blocks[current_idx];
 
     let delta = mouse_motion.delta;
 
