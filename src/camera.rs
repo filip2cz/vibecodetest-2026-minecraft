@@ -93,9 +93,11 @@ fn camera_movement(
     // Block selection (scroll wheel)
     for ev in mouse_wheel.read() {
         if ev.y > 0.0 {
-            current_idx = (current_idx + blocks.len() - 1) % blocks.len();
-        } else if ev.y < 0.0 {
+            // Scroll UP -> move right
             current_idx = (current_idx + 1) % blocks.len();
+        } else if ev.y < 0.0 {
+            // Scroll DOWN -> move left
+            current_idx = (current_idx + blocks.len() - 1) % blocks.len();
         }
     }
     
